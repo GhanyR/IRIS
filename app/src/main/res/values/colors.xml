@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tracker_background">#07110E</color>
+    <color name="tracker_foreground">#F3FFF9</color>
+</resources>
