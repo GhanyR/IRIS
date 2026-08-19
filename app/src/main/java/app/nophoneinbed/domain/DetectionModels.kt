@@ -32,6 +32,7 @@ data class TrackedPhone(
 data class DecisionPolicy(
     val strongConfidence: Float,
     val minimumOverlap: Float,
+    val maximumEvidenceAgeMs: Long,
     val positiveFramesRequired: Int,
     val frameWindow: Int,
     val persistentPositiveMs: Long,
@@ -41,6 +42,7 @@ data class DecisionPolicy(
         fun default() = DecisionPolicy(
             strongConfidence = 0.35f,
             minimumOverlap = 0.15f,
+            maximumEvidenceAgeMs = 500L,
             positiveFramesRequired = 3,
             frameWindow = 5,
             persistentPositiveMs = 1_000,

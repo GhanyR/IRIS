@@ -66,6 +66,15 @@
             app:implementationMode="compatible"
             app:scaleType="fitCenter" />
 
+        <ImageView
+            android:id="@+id/monitoringPreviewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#000000"
+            android:contentDescription="@string/monitoring_preview"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
         <app.nophoneinbed.ui.TrackerOverlayView
             android:id="@+id/overlayView"
             android:layout_width="match_parent"

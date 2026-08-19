@@ -41,6 +41,19 @@ class DetectionDecisionEngineTest {
     }
 
     @Test
+    fun staleRetainedTrackDoesNotDelayTheThreeSecondAlarmClear() {
+        val engine = DetectionDecisionEngine(DecisionPolicy.default())
+        listOf(0L, 200L, 400L).forEach { time ->
+            engine.update(time, listOf(confirmedInside(time)), null)
+        }
+        val retainedTrack = confirmedInside(400)
+
+        assertThat(engine.update(1_000, listOf(retainedTrack), null).state).isEqualTo(TrackerState.ALARM)
+        assertThat(engine.update(3_999, listOf(retainedTrack), null).state).isEqualTo(TrackerState.ALARM)
+        assertThat(engine.update(4_000, listOf(retainedTrack), null).state).isEqualTo(TrackerState.CLEAR)
+    }
+
+    @Test
     fun luminousScreenWithoutModelConfirmationIsWatch() {
         val engine = DetectionDecisionEngine(DecisionPolicy.default())
         val screenTrack = confirmedInside(0).copy(confirmedByModel = false)

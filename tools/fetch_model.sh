@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-model_url='https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite'
-expected_sha256='0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb'
-target_path='app/src/main/assets/efficientdet_lite0.tflite'
+model_url='https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/latest/efficientdet_lite2.tflite'
+expected_sha256='b3f50554cb0ea559e90328845f7d9ba4d13c8bff372914d24e06bc8bb72fa896'
+target_path='app/src/main/assets/efficientdet_lite2.tflite'
 
 mkdir -p "$(dirname "$target_path")"
 curl -fsSL "$model_url" -o "$target_path"

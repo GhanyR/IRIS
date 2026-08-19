@@ -4,6 +4,7 @@
     <string name="iris_expansion">In-bed Recognition &amp; Intervention System</string>
     <string name="state_setup">SETUP — kalibrasikan seluruh kasur</string>
     <string name="calibration_overlay">Area kamera dan titik kalibrasi kasur</string>
+    <string name="monitoring_preview">Live view kamera IRIS saat monitoring</string>
     <string name="calibration_intro">Pastikan seluruh kasur terlihat. Tekan Kalibrasi lalu tap: 1 kepala-kiri, 2 kepala-kanan, 3 kaki-kanan, 4 kaki-kiri.</string>
     <string name="bed_width_hint">Lebar m</string>
     <string name="bed_length_hint">Panjang m</string>

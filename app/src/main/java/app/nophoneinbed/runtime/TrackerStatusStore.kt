@@ -28,4 +28,5 @@ class TrackerStatusStore(initial: TrackerSnapshot = TrackerSnapshot()) {
 
 object TrackerRuntime {
     val statusStore = TrackerStatusStore()
+    val previewStore = TrackerPreviewStore(minimumIntervalMs = 500L)
 }

@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -22,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import app.nophoneinbed.MainActivity
 import app.nophoneinbed.data.CalibrationStore
+import app.nophoneinbed.data.TrackingStateStore
 import app.nophoneinbed.domain.BedCalibration
 import app.nophoneinbed.domain.BedVolumeModel
 import app.nophoneinbed.domain.DecisionPolicy
@@ -32,17 +34,27 @@ import app.nophoneinbed.domain.TrackerState
 import app.nophoneinbed.vision.CameraFrame
 import app.nophoneinbed.vision.CameraFrameSource
 import app.nophoneinbed.vision.CameraPoseEstimator
+import app.nophoneinbed.vision.FrameQualityEvaluator
 import app.nophoneinbed.vision.MediaPipePhoneObjectDetector
 import app.nophoneinbed.vision.PhoneObjectDetector
 import app.nophoneinbed.vision.ScreenCandidateDetector
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.Mat
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeoutException
 
 class TrackerForegroundService : LifecycleService(), SensorEventListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val trackManager = PhoneTrackManager(occlusionRetentionMs = 10_000L)
     private val decisionEngine = DetectionDecisionEngine(DecisionPolicy.default())
+    private val frameQualityEvaluator = FrameQualityEvaluator()
+    private val cameraHealth = CameraHealthPolicy(FRAME_TIMEOUT_MS)
+    private val cadence = RuntimeCadencePolicy(
+        publishIntervalMs = PUBLISH_INTERVAL_MS,
+        wakeLockTimeoutMs = WAKE_LOCK_TIMEOUT_MS,
+        wakeLockRenewalMs = WAKE_LOCK_RENEWAL_MS,
+    )
     private lateinit var powerManager: PowerManager
     private lateinit var alarm: AlarmController
     private lateinit var sensorManager: SensorManager
@@ -57,7 +69,29 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
     private var thermalStatus = 0
     private var lastFrameAtMs = 0L
     private var retryAttempt = 0
+    private var retryScheduled = false
+    private var movementFaultLatched = false
+    private var lastPublishedState: TrackerState? = null
+    private var lastPublishedAtMs: Long? = null
     private var started = false
+
+    private val cameraHealthCheck = object : Runnable {
+        override fun run() {
+            if (!started) return
+            val now = SystemClock.elapsedRealtime()
+            if (!movementFaultLatched && !retryScheduled && cameraHealth.isStalled(now)) {
+                scheduleCameraRetry(TimeoutException("No camera frame for ${FRAME_TIMEOUT_MS}ms"))
+            }
+            if (started) mainHandler.postDelayed(this, HEALTH_CHECK_INTERVAL_MS)
+        }
+    }
+
+    private val wakeLockRenewal = object : Runnable {
+        override fun run() {
+            if (!started) return
+            acquireWakeLockLease()
+        }
+    }
 
     private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
         thermalStatus = status
@@ -92,16 +126,18 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
         startForeground(NOTIFICATION_ID, notification("Menyiapkan kamera", TrackerState.WATCH))
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:tracker").apply {
             setReferenceCounted(false)
-            acquire(WAKE_LOCK_TIMEOUT_MS)
         }
+        acquireWakeLockLease()
 
         val cameraId = rearCameraId()
         val loaded = CalibrationStore(this).load(cameraId)
         calibration = loaded.getOrElse {
+            TrackingStateStore(this).setArmed(false)
             enterFault(it.message ?: "Kalibrasi tidak dapat dibaca")
             return
         }
         if (calibration == null) {
+            TrackingStateStore(this).setArmed(false)
             enterFault("Kasur belum dikalibrasi")
             return
         }
@@ -110,6 +146,7 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
         if (!OpenCVLoader.initLocal()) {
+            TrackingStateStore(this).setArmed(false)
             enterFault("OpenCV tidak dapat dimuat")
             return
         }
@@ -117,14 +154,20 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
             objectDetector = MediaPipePhoneObjectDetector(this)
             screenDetector = ScreenCandidateDetector()
         } catch (error: Throwable) {
+            TrackingStateStore(this).setArmed(false)
             enterFault("Model AI tidak dapat dimuat: ${error.javaClass.simpleName}")
             return
         }
+        TrackingStateStore(this).setArmed(true)
         bindCamera()
+        mainHandler.postDelayed(cameraHealthCheck, HEALTH_CHECK_INTERVAL_MS)
     }
 
     private fun bindCamera() {
+        if (movementFaultLatched) return
+        retryScheduled = false
         frameSource?.close()
+        cameraHealth.onBound(SystemClock.elapsedRealtime())
         frameSource = CameraFrameSource(this).also { source ->
             source.analysisIntervalMs = ThermalController.intervalMs(thermalStatus)
             source.start(
@@ -136,19 +179,23 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
     }
 
     private fun scheduleCameraRetry(error: Throwable) {
-        if (!started) return
-        val delays = longArrayOf(1_000L, 2_000L, 4_000L)
-        if (retryAttempt >= delays.size) {
-            enterFault("Kamera gagal dibuka: ${error.javaClass.simpleName}")
-            return
-        }
-        val delay = delays[retryAttempt++]
-        enterFault("Kamera terputus; mencoba lagi")
-        mainHandler.postDelayed({ if (started) bindCamera() }, delay)
+        if (!started || movementFaultLatched || retryScheduled) return
+        retryScheduled = true
+        val delay = cameraHealth.retryDelayMs(retryAttempt)
+        retryAttempt = minOf(retryAttempt + 1, MAX_RETRY_ATTEMPT)
+        frameSource?.close()
+        frameSource = null
+        enterFault("Kamera terputus (${error.javaClass.simpleName}); retry ${delay / 1_000}s")
+        mainHandler.postDelayed({
+            if (started) bindCamera()
+        }, delay)
     }
 
     private fun analyzeFrame(frame: CameraFrame) {
         val startedAt = SystemClock.elapsedRealtime()
+        cameraHealth.onFrame(frame.timestampMs)
+        retryAttempt = 0
+        publishPreview(frame)
         try {
             val thermalFault = ThermalController.faultReason(thermalStatus)
             if (thermalFault != null) {
@@ -174,10 +221,15 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
             }
             val model = volumeModel ?: error("Bed volume unavailable")
             val evidence = mutableListOf<PhoneEvidence>()
-            evidence += objectDetector.orFail().detect(frame.bitmap, frame.timestampMs)
             val mat = Mat()
             try {
                 Utils.bitmapToMat(frame.bitmap, mat)
+                val quality = frameQualityEvaluator.evaluate(mat)
+                if (!quality.usable) {
+                    enterFault(quality.faultReason ?: "Frame kamera tidak dapat dipakai")
+                    return
+                }
+                evidence += objectDetector.orFail().detect(frame.bitmap, frame.timestampMs)
                 evidence += screenDetector.orFail().detect(mat, frame.timestampMs, projectedVolume?.silhouette)
             } finally {
                 mat.release()
@@ -195,7 +247,6 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
                 analysisFps = fps,
                 fault = null,
             )
-            retryAttempt = 0
         } catch (error: Throwable) {
             enterFault("Analisis gagal: ${error.javaClass.simpleName}")
         } finally {
@@ -222,22 +273,26 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
             faultReason = fault,
         )
         TrackerRuntime.statusStore.update(snapshot)
-        val label = when (state) {
-            TrackerState.CLEAR -> "Aman — tidak ada HP di kasur"
-            TrackerState.WATCH -> "Memeriksa objek mirip HP"
-            TrackerState.ALARM -> "HP terdeteksi di kasur"
-            TrackerState.FAULT -> fault ?: "Pelacakan bermasalah"
+        if (cadence.shouldPublish(lastPublishedState, state, lastPublishedAtMs, now)) {
+            val label = when (state) {
+                TrackerState.CLEAR -> "Aman — tidak ada HP di kasur"
+                TrackerState.WATCH -> "Memeriksa objek mirip HP"
+                TrackerState.ALARM -> "HP terdeteksi di kasur"
+                TrackerState.FAULT -> fault ?: "Pelacakan bermasalah"
+            }
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(label, state))
+            val strongest = detections.maxByOrNull { it.confidence * it.overlapRatio }
+            Log.i(
+                TAG,
+                "state=$state detections=${detections.size} " +
+                    "bestKind=${strongest?.kind ?: "none"} " +
+                    "bestConfidence=${strongest?.confidence ?: 0f} " +
+                    "bestOverlap=${strongest?.overlapRatio ?: 0f} " +
+                    "inferenceMs=$inferenceMs fps=$analysisFps thermal=$thermalStatus",
+            )
+            lastPublishedState = state
+            lastPublishedAtMs = now
         }
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(label, state))
-        val strongest = detections.maxByOrNull { it.confidence * it.overlapRatio }
-        Log.i(
-            TAG,
-            "state=$state detections=${detections.size} " +
-                "bestKind=${strongest?.kind ?: "none"} " +
-                "bestConfidence=${strongest?.confidence ?: 0f} " +
-                "bestOverlap=${strongest?.overlapRatio ?: 0f} " +
-                "inferenceMs=$inferenceMs fps=$analysisFps thermal=$thermalStatus",
-        )
     }
 
     private fun enterFault(reason: String) {
@@ -246,14 +301,23 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
 
     private fun stopTracking() {
         started = false
+        TrackingStateStore(this).setArmed(false)
         releaseRuntime()
-        enterFault("Pelacakan dihentikan")
+        alarm.apply(TrackerState.CLEAR, SystemClock.elapsedRealtime())
+        TrackerRuntime.statusStore.update(
+            TrackerSnapshot(
+                state = TrackerState.FAULT,
+                faultReason = "Pelacakan dihentikan",
+            ),
+        )
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun releaseRuntime() {
         mainHandler.removeCallbacksAndMessages(null)
+        retryScheduled = false
+        movementFaultLatched = false
         sensorManager.unregisterListener(this)
         frameSource?.close()
         frameSource = null
@@ -264,10 +328,60 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
         wakeLock = null
         trackManager.clear()
         decisionEngine.reset()
+        TrackerRuntime.previewStore.clear()
+        lastPublishedState = null
+        lastPublishedAtMs = null
+    }
+
+    private fun acquireWakeLockLease() {
+        val lock = wakeLock ?: return
+        if (lock.isHeld) lock.release()
+        lock.acquire(cadence.wakeLockTimeoutMs)
+        mainHandler.removeCallbacks(wakeLockRenewal)
+        if (started) mainHandler.postAtTime(
+            wakeLockRenewal,
+            cadence.nextWakeLockRenewalAt(SystemClock.uptimeMillis()),
+        )
+    }
+
+    private fun publishPreview(frame: CameraFrame) {
+        runCatching {
+            TrackerRuntime.previewStore.offer(frame.timestampMs) {
+                encodePreview(frame.bitmap)
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "In-memory preview skipped: ${error.javaClass.simpleName}")
+        }
+    }
+
+    private fun encodePreview(source: Bitmap): ByteArray {
+        val longestSide = maxOf(source.width, source.height)
+        val scale = minOf(1f, PREVIEW_MAX_DIMENSION.toFloat() / longestSide)
+        val width = maxOf(1, (source.width * scale).toInt())
+        val height = maxOf(1, (source.height * scale).toInt())
+        val preview = if (width == source.width && height == source.height) {
+            source
+        } else {
+            Bitmap.createScaledBitmap(source, width, height, true)
+        }
+        return try {
+            ByteArrayOutputStream().use { output ->
+                check(preview.compress(Bitmap.CompressFormat.JPEG, PREVIEW_JPEG_QUALITY, output))
+                output.toByteArray()
+            }
+        } finally {
+            if (preview !== source && !preview.isRecycled) preview.recycle()
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        if (event.sensor.type == Sensor.TYPE_ACCELEROMETER && movementMonitor?.isMoved(event.values) == true) {
+        val timestampMs = event.timestamp / 1_000_000L
+        if (
+            event.sensor.type == Sensor.TYPE_ACCELEROMETER &&
+            movementMonitor?.isMoved(event.values, timestampMs) == true
+        ) {
+            movementFaultLatched = true
+            retryScheduled = false
             frameSource?.stop()
             enterFault("Posisi kamera berubah; kalibrasi ulang diperlukan")
         }
@@ -326,7 +440,14 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
         private const val CHANNEL_ID = "bed_tracking"
         private const val NOTIFICATION_ID = 41
         private const val TAG = "IRIS"
+        private const val FRAME_TIMEOUT_MS = 10_000L
+        private const val HEALTH_CHECK_INTERVAL_MS = 2_000L
+        private const val PUBLISH_INTERVAL_MS = 1_000L
         private const val WAKE_LOCK_TIMEOUT_MS = 12L * 60L * 60L * 1_000L
+        private const val WAKE_LOCK_RENEWAL_MS = 6L * 60L * 60L * 1_000L
+        private const val MAX_RETRY_ATTEMPT = 6
+        private const val PREVIEW_MAX_DIMENSION = 640
+        private const val PREVIEW_JPEG_QUALITY = 72
 
         fun startIntent(context: Context) = Intent(context, TrackerForegroundService::class.java).setAction(ACTION_START)
         fun stopIntent(context: Context) = Intent(context, TrackerForegroundService::class.java).setAction(ACTION_STOP)

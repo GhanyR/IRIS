@@ -66,7 +66,7 @@ class MediaPipePhoneObjectDetector(context: Context) : PhoneObjectDetector {
     }
 
     companion object {
-        private const val MODEL_ASSET = "efficientdet_lite0.tflite"
+        private const val MODEL_ASSET = "efficientdet_lite2.tflite"
         private const val CELL_PHONE_CATEGORY = "cell phone"
     }
 }

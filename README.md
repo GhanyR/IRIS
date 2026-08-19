@@ -27,14 +27,47 @@ All camera analysis runs locally. IRIS does not save or upload camera frames.
 
 Recalibrate whenever the monitoring phone or bed moves.
 
+## Wireless setup from a Mac
+
+IRIS can be viewed and controlled from a Mac over Wi-Fi with scrcpy. Bluetooth is not used because it is too slow for responsive camera preview.
+
+The initial enablement uses USB once:
+
+```bash
+brew install scrcpy
+adb tcpip 5555
+adb connect 10.20.10.50:5555
+./tools/iris_wireless_mirror.sh
+```
+
+After that, the cable can be removed while the Motorola and Mac remain on the same Wi-Fi. If the router gives the phone a different address, run the launcher with the new address:
+
+```bash
+IRIS_DEVICE_IP=10.20.10.50 ./tools/iris_wireless_mirror.sh
+```
+
+The launcher opens IRIS and provides live video plus mouse control for four-corner calibration. During active tracking, preview frames exist only in process memory and are generated only while the IRIS window is being viewed.
+
+Legacy ADB TCP/IP normally needs to be enabled again after the phone reboots. Monitoring itself does not need the Mac connection.
+
 ## Build and test
 
 Requirements: JDK 17, Android SDK 36, and an arm64 Android device.
 
 ```bash
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 \
+ANDROID_HOME=$HOME/Library/Android/sdk \
 ./gradlew :app:testDebugUnitTest :app:connectedDebugAndroidTest :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+For a bounded runtime check after monitoring is active:
+
+```bash
+IRIS_SOAK_SECONDS=1800 ./tools/iris_soak_monitor.sh
+```
+
+Keep the monitoring phone connected to power and exempt IRIS from Android battery optimization. Android does not allow IRIS to silently restart its camera foreground service directly after a reboot, so reopen IRIS after the phone restarts.
 
 The Android application ID intentionally remains `app.nophoneinbed` so existing installations can upgrade without losing local calibration.
 

@@ -3,6 +3,8 @@ package app.nophoneinbed
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -17,6 +19,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -24,6 +27,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.nophoneinbed.data.CalibrationStore
+import app.nophoneinbed.data.TrackingStateStore
 import app.nophoneinbed.databinding.ActivityMainBinding
 import app.nophoneinbed.domain.BedCalibration
 import app.nophoneinbed.domain.BedVolumeProjection
@@ -44,6 +48,7 @@ import org.opencv.android.OpenCVLoader
 class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var binding: ActivityMainBinding
     private lateinit var calibrationStore: CalibrationStore
+    private lateinit var trackingStateStore: TrackingStateStore
     private lateinit var sensorManager: SensorManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var calibrationController = CalibrationController()
@@ -57,12 +62,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var audibleAcknowledged = false
     private var trackingRequested = false
     private var testTone: AndroidToneOutput? = null
+    private var monitoringBitmap: Bitmap? = null
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
         if (grants[Manifest.permission.CAMERA] == true || hasCameraPermission()) {
-            startSetupPreview()
+            if (trackingRequested) {
+                ContextCompat.startForegroundService(this, TrackerForegroundService.startIntent(this))
+            } else {
+                startSetupPreview()
+            }
         } else {
             showSetupMessage("Izin kamera diperlukan agar AI bisa melihat kasur", fault = true)
         }
@@ -73,12 +83,23 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         calibrationStore = CalibrationStore(this)
+        trackingStateStore = TrackingStateStore(this)
+        trackingRequested = trackingStateStore.isArmed()
         sensorManager = getSystemService(SensorManager::class.java)
         configureActions()
         restoreCalibration()
         updateAlarmVolume()
         observeTrackerStatus()
-        if (hasCameraPermission()) startSetupPreview() else requestRequiredPermissions()
+        if (hasRequiredPermissions()) {
+            if (trackingRequested) {
+                showSetupMessage("WATCH — menyambungkan kembali live monitoring", false)
+                ContextCompat.startForegroundService(this, TrackerForegroundService.startIntent(this))
+            } else {
+                startSetupPreview()
+            }
+        } else {
+            requestRequiredPermissions()
+        }
     }
 
     private fun configureActions() {
@@ -127,11 +148,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun requestRequiredPermissions() {
-        val permissions = mutableListOf(Manifest.permission.CAMERA)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val permissions = mutableListOf<String>()
+        if (!hasCameraPermission()) permissions += Manifest.permission.CAMERA
+        if (!hasNotificationPermission()) {
             permissions += Manifest.permission.POST_NOTIFICATIONS
         }
-        permissionLauncher.launch(permissions.toTypedArray())
+        if (permissions.isNotEmpty()) permissionLauncher.launch(permissions.toTypedArray())
     }
 
     private fun startSetupPreview() {
@@ -233,6 +255,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         setupCamera?.close()
         setupCamera = null
         trackingRequested = true
+        trackingStateStore.setArmed(true)
+        binding.previewView.visibility = View.GONE
         ContextCompat.startForegroundService(this, TrackerForegroundService.startIntent(this))
         showSetupMessage("WATCH — AI sedang memulai kamera", false)
         updateControls()
@@ -241,6 +265,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private fun stopTracking() {
         startService(TrackerForegroundService.stopIntent(this))
         trackingRequested = false
+        trackingStateStore.setArmed(false)
+        clearMonitoringPreview()
+        binding.previewView.visibility = View.VISIBLE
         showSetupMessage("STOPPED — pelacakan tidak aktif", true)
         mainHandler.postDelayed(::startSetupPreview, 600L)
         updateControls()
@@ -249,12 +276,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private fun observeTrackerStatus() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                TrackerRuntime.statusStore.status.collect(::renderTrackerSnapshot)
+                launch { TrackerRuntime.statusStore.status.collect(::renderTrackerSnapshot) }
+                launch { TrackerRuntime.previewStore.frames.collect(::renderMonitoringPreview) }
             }
         }
     }
 
     private fun renderTrackerSnapshot(snapshot: TrackerSnapshot) {
+        if (trackingStateStore.isArmed()) trackingRequested = true
         if (trackingRequested || snapshot.inferenceMs > 0L) {
             val label = when (snapshot.state) {
                 TrackerState.CLEAR -> "CLEAR — tidak ada HP terdeteksi"
@@ -278,6 +307,38 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 ),
             )
         }
+    }
+
+    private fun renderMonitoringPreview(preview: app.nophoneinbed.runtime.InMemoryPreview?) {
+        if (preview == null || !trackingRequested) {
+            clearMonitoringPreview()
+            return
+        }
+        val bytes = preview.jpegBytes()
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+        val previous = monitoringBitmap
+        monitoringBitmap = decoded
+        binding.monitoringPreviewView.setImageBitmap(decoded)
+        binding.monitoringPreviewView.visibility = View.VISIBLE
+        binding.previewView.visibility = View.GONE
+        if (binding.overlayView.width > 0 && binding.overlayView.height > 0) {
+            binding.overlayView.coordinateMapper = CoordinateMapper(
+                analysisWidth = decoded.width,
+                analysisHeight = decoded.height,
+                previewWidth = binding.overlayView.width,
+                previewHeight = binding.overlayView.height,
+                rotationDegrees = 0,
+                scaleMode = PreviewScaleMode.FIT_CENTER,
+            )
+        }
+        previous?.takeIf { !it.isRecycled }?.recycle()
+    }
+
+    private fun clearMonitoringPreview() {
+        binding.monitoringPreviewView.setImageDrawable(null)
+        binding.monitoringPreviewView.visibility = View.GONE
+        monitoringBitmap?.takeIf { !it.isRecycled }?.recycle()
+        monitoringBitmap = null
     }
 
     private fun restoreCalibration() {
@@ -323,8 +384,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun updateControls() {
-        binding.undoButton.isEnabled = calibrationController.corners.isNotEmpty() && calibrating
-        binding.saveButton.isEnabled = calibrationController.corners.size == 4 && latestImageWidth > 0
+        binding.calibrateButton.isEnabled = !trackingRequested
+        binding.undoButton.isEnabled = calibrationController.corners.isNotEmpty() && calibrating && !trackingRequested
+        binding.resetButton.isEnabled = !trackingRequested
+        binding.saveButton.isEnabled = calibrationController.corners.size == 4 && latestImageWidth > 0 && !trackingRequested
         binding.testAlarmButton.isEnabled = currentCalibration != null
         binding.startButton.isEnabled = currentCalibration != null && audibleAcknowledged && !trackingRequested
         binding.stopButton.isEnabled = trackingRequested
@@ -368,12 +431,28 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         Manifest.permission.CAMERA,
     ) == PackageManager.PERMISSION_GRANTED
 
+    private fun hasNotificationPermission(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasRequiredPermissions(): Boolean = hasCameraPermission() && hasNotificationPermission()
+
     override fun onResume() {
         super.onResume()
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
         updateAlarmVolume()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        TrackerRuntime.previewStore.setConsumerActive(true)
+    }
+
+    override fun onStop() {
+        TrackerRuntime.previewStore.setConsumerActive(false)
+        clearMonitoringPreview()
+        super.onStop()
     }
 
     override fun onPause() {
@@ -390,6 +469,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     override fun onDestroy() {
         setupCamera?.close()
         testTone?.close()
+        clearMonitoringPreview()
         mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }

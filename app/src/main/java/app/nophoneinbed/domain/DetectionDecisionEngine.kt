@@ -12,6 +12,7 @@ class DetectionDecisionEngine(private val policy: DecisionPolicy) {
     init {
         require(policy.strongConfidence in 0f..1f)
         require(policy.minimumOverlap in 0f..1f)
+        require(policy.maximumEvidenceAgeMs >= 0)
         require(policy.positiveFramesRequired in 1..policy.frameWindow)
         require(policy.persistentPositiveMs >= 0)
         require(policy.clearAfterMs >= 0)
@@ -33,10 +34,17 @@ class DetectionDecisionEngine(private val policy: DecisionPolicy) {
         }
 
         val confirmedInside = tracks.filter {
-            it.confirmedByModel && it.lastKnownInside && it.overlapRatio >= policy.minimumOverlap
+            timestampMs - it.lastSeenMs <= policy.maximumEvidenceAgeMs &&
+                it.confirmedByModel &&
+                it.lastKnownInside &&
+                it.overlapRatio >= policy.minimumOverlap
         }
         val strongPositive = confirmedInside.any { it.confidence >= policy.strongConfidence }
-        val watchEvidence = tracks.any { it.lastKnownInside && it.overlapRatio > 0f }
+        val watchEvidence = tracks.any {
+            timestampMs - it.lastSeenMs <= policy.maximumEvidenceAgeMs &&
+                it.lastKnownInside &&
+                it.overlapRatio > 0f
+        }
 
         positiveFrames.addLast(strongPositive)
         while (positiveFrames.size > policy.frameWindow) positiveFrames.removeFirst()
