@@ -59,6 +59,8 @@ Still required for final positive/transition acceptance:
 
 No final physical 0.3.0 positive clear/re-detect claim is made before those three object-transition steps actually occur. The empty-bed negative check and bounded runtime soak are complete.
 
+After the soak completed, connecting USB power moved the mounted Motorola by more than the allowed angle for more than three seconds. IRIS correctly latched `FAULT — Posisi kamera berubah; kalibrasi ulang diperlukan` instead of continuing with stale geometry. Monitoring was intentionally stopped and disarmed; USB charging is now detected. The Mac recalibration window is open at the secure lock screen, so the owner must unlock once, adjust/save the four points, and start monitoring again.
+
 ## Privacy
 
 IRIS performs inference locally, does not request internet/media/storage permissions, and does not save camera frames. Active-monitoring preview JPEGs exist only in process memory while the Activity is visible. Diagnostic logs contain state, timing, evidence kind, confidence, overlap, FPS, and thermal status, never pixels. IRIS Manager receives only those metadata fields; scrcpy Live View remains a separate local ADB stream.
