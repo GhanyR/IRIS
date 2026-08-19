@@ -75,7 +75,7 @@ These are starting values. The final values are selected from device measurement
 
 ## Calibration and movement protection
 
-Calibration shows the live camera preview, asks for the physical bed length and width, and then asks for four taps in order: top-left, top-right, bottom-right, bottom-left as viewed from the camera. The app combines those observations with Camera2 lens intrinsics to estimate camera pose. It projects an adjustable 3D prism above the mattress and draws the resulting volume boundary immediately. The user can adjust prohibited height and a visual upper-bound handle to tune an oblique side view. The calibrated pose, normalized coordinates, height, and inward/outward margins are stored together.
+Calibration shows the live camera preview, asks for the physical bed length and width, and then asks for four physical mattress corners in order: head-left, head-right, foot-right, foot-left. These physical labels remain unambiguous even when the image is rotated or viewed from the side. The app combines those observations with Camera2 lens intrinsics to estimate camera pose. It projects an adjustable 3D prism above the mattress and draws the resulting volume boundary immediately. The user can adjust prohibited height and a visual upper-bound handle to tune an oblique side view. The calibrated pose, normalized coordinates, height, and inward/outward margins are stored together.
 
 The calibration quality gate rejects self-crossing corners, implausible perspective, excessive reprojection error, a bed that is partially outside the frame, or a volume that cannot be projected stably. Ceiling views naturally collapse close to the mattress polygon; side views show a larger projected airspace above it.
 
