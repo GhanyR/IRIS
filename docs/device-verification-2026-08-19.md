@@ -43,7 +43,7 @@ ANDROID_HOME=$HOME/Library/Android/sdk \
 - Manager server: confirmed listening only on `127.0.0.1:8765`
 - Manager controls exercised on the Motorola: test alarm, calibration-gated start, stop, and Wi-Fi Live View
 
-The final APK was reinstalled after the complete test suite. At the last reading, battery was 89% and 31.0 C. Android reported neither AC, USB, nor wireless charging, so true continuous deployment still requires a working wall-power connection.
+The final APK was reinstalled after the complete test suite. A bounded soak then passed for 616 seconds with 21/21 healthy samples: PID and foreground service remained present, runtime logs stayed 0–1 seconds fresh, battery moved from 88% to 86%, and temperature moved from 31.0 C to a stable 33.0 C. Android reported neither AC, USB, nor wireless charging, so true continuous deployment still requires a working wall-power connection.
 
 ## Physical acceptance state
 
@@ -56,9 +56,8 @@ Still required for final positive/transition acceptance:
 1. Place one phone on the calibrated mattress and confirm `ALARM`.
 2. Remove it and measure `CLEAR` in 3.0–4.0 seconds.
 3. Replace it at another visible position and confirm `ALARM` again.
-4. Run the bounded soak and record its exact duration.
 
-No final physical 0.3.0 clear/re-detect or soak claim is made before those steps actually occur.
+No final physical 0.3.0 positive clear/re-detect claim is made before those three object-transition steps actually occur. The empty-bed negative check and bounded runtime soak are complete.
 
 ## Privacy
 
