@@ -15,6 +15,7 @@ class MediaPipePhoneObjectDetectorTest {
             assertThat(detector.categoryAllowlist).containsExactly("cell phone")
             val blank = Bitmap.createBitmap(320, 320, Bitmap.Config.ARGB_8888)
             assertThat(detector.detect(blank, timestampMs = 10)).isEmpty()
+            assertThat(blank.isRecycled).isFalse()
             blank.recycle()
         }
     }

@@ -45,6 +45,32 @@ class CameraPoseEstimatorTest {
         assertThat(result.isFailure).isTrue()
     }
 
+    @Test
+    fun manualObliqueCalibrationToleratesRealTapAndLensNoise() {
+        val calibration = BedCalibration.create(
+            widthMeters = 1.6f,
+            lengthMeters = 2.0f,
+            heightMeters = 1.4f,
+            corners = listOf(
+                NPoint(.9375f, .417f),
+                NPoint(.911f, .618f),
+                NPoint(.242f, .882f),
+                NPoint(.208f, .441f),
+            ),
+            gravity = listOf(0f, 1f, 0f),
+        ).getOrThrow()
+
+        val projection = CameraPoseEstimator().projectBedVolume(
+            calibration = calibration,
+            intrinsics = CameraIntrinsics(522.0, 522.0, 320.0, 240.0, DoubleArray(5)),
+            imageWidth = 640,
+            imageHeight = 480,
+        ).getOrThrow()
+
+        assertThat(projection.reprojectionErrorPx).isLessThan(72f)
+        assertThat(projection.silhouette.area).isGreaterThan(.30f)
+    }
+
     private fun syntheticCalibration(intrinsics: CameraIntrinsics): BedCalibration {
         val objectPoints = MatOfPoint3f(
             Point3(0.0, 0.0, 0.0),

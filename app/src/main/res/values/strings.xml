@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">No Phone in Bed</string>
+    <string name="app_name">IRIS</string>
+    <string name="iris_expansion">In-bed Recognition &amp; Intervention System</string>
     <string name="state_setup">SETUP — kalibrasikan seluruh kasur</string>
     <string name="calibration_overlay">Area kamera dan titik kalibrasi kasur</string>
     <string name="calibration_intro">Pastikan seluruh kasur terlihat. Tekan Kalibrasi lalu tap: 1 kepala-kiri, 2 kepala-kanan, 3 kaki-kanan, 4 kaki-kiri.</string>

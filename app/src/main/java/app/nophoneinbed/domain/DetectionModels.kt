@@ -2,7 +2,7 @@ package app.nophoneinbed.domain
 
 enum class TrackerState { CLEAR, WATCH, ALARM, FAULT }
 
-enum class EvidenceKind { OBJECT_MODEL, LUMINOUS_SCREEN }
+enum class EvidenceKind { OBJECT_MODEL, DARK_PHONE_SHAPE, LUMINOUS_SCREEN }
 
 data class PhoneEvidence(
     val box: NRect,

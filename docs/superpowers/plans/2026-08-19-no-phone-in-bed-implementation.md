@@ -1,4 +1,4 @@
-# No Phone in Bed Implementation Plan
+# IRIS — In-bed Recognition & Intervention System Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Package name is `app.nophoneinbed`; app label is `No Phone in Bed`.
+- Package name remains `app.nophoneinbed` for upgrade continuity; the app label is `IRIS`.
 - The monitored phone requires no marker, sticker, overlay, companion app, Bluetooth connection, or brand-specific integration.
 - The app works from an overhead, wall, or side mount when the entire bed is visible and calibration passes.
 - The primary physical target is the connected Motorola moto g (2025) on Android 16.
@@ -752,7 +752,7 @@ Expected: user confirms audible sound; Start becomes enabled.
 
 Remove every phone from the projected bed volume, start tracking, and observe state/logcat for 60 seconds.
 
-Run: `adb logcat -c && adb logcat -v time NoPhoneInBed:I '*:S'`
+Run: `adb logcat -c && adb logcat -v time IRIS:I '*:S'`
 
 Expected: `CLEAR` for 60 seconds, model continues analyzing near 5 FPS, no alarm, no frame path/base64/image log, no camera error.
 

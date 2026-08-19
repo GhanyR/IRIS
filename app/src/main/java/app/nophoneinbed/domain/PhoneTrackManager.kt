@@ -40,7 +40,7 @@ class PhoneTrackManager(
                     id = id,
                     box = item.box,
                     confidence = item.confidence,
-                    confirmedByModel = item.kind == EvidenceKind.OBJECT_MODEL,
+                    confirmedByModel = item.kind.isPhoneConfirmation,
                     lastSeenMs = timestampMs,
                     lastKnownInside = item.overlapRatio > 0f,
                     overlapRatio = item.overlapRatio,
@@ -51,7 +51,7 @@ class PhoneTrackManager(
                 tracks[matchedId] = existing.copy(
                     box = item.box,
                     confidence = item.confidence,
-                    confirmedByModel = existing.confirmedByModel || item.kind == EvidenceKind.OBJECT_MODEL,
+                    confirmedByModel = existing.confirmedByModel || item.kind.isPhoneConfirmation,
                     lastSeenMs = timestampMs,
                     lastKnownInside = item.overlapRatio > 0f,
                     overlapRatio = item.overlapRatio,
@@ -70,6 +70,9 @@ class PhoneTrackManager(
 
     private fun centerDistance(first: NRect, second: NRect): Float =
         hypot(first.center.x - second.center.x, first.center.y - second.center.y)
+
+    private val EvidenceKind.isPhoneConfirmation: Boolean
+        get() = this == EvidenceKind.OBJECT_MODEL || this == EvidenceKind.DARK_PHONE_SHAPE
 
     private data class Match(val id: Int, val iou: Float, val distance: Float)
 }

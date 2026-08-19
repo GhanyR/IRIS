@@ -1,4 +1,4 @@
-# No Phone in Bed — Android Vision Tracker Design
+# IRIS — In-bed Recognition & Intervention System Design
 
 Date: 2026-08-19
 Status: Approved for implementation

@@ -44,6 +44,27 @@ class PhoneTrackManagerTest {
         assertThat(track.lastKnownInside).isTrue()
     }
 
+    @Test
+    fun isolatedDarkPhoneShapeConfirmsANewPhone() {
+        val manager = PhoneTrackManager(occlusionRetentionMs = 10_000)
+
+        val track = manager.update(
+            0,
+            listOf(
+                PhoneEvidence(
+                    box = NRect(.4f, .4f, .5f, .6f),
+                    confidence = .60f,
+                    kind = EvidenceKind.DARK_PHONE_SHAPE,
+                    overlapRatio = 1f,
+                    timestampMs = 0,
+                ),
+            ),
+        ).single()
+
+        assertThat(track.confirmedByModel).isTrue()
+        assertThat(track.lastKnownInside).isTrue()
+    }
+
     private fun modelEvidence(
         box: NRect = NRect(.4f, .4f, .5f, .6f),
         timestampMs: Long = 0,

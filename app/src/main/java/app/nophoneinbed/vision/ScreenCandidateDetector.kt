@@ -6,6 +6,7 @@ import app.nophoneinbed.domain.PhoneEvidence
 import app.nophoneinbed.domain.Polygon
 import kotlin.math.max
 import kotlin.math.min
+import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfFloat
@@ -36,13 +37,15 @@ class ScreenCandidateDetector {
                 1 -> frame.copyTo(gray)
                 else -> error("Unsupported frame channel count: ${frame.channels()}")
             }
-            val threshold = max(160.0, percentile(gray, 0.95))
+            // THRESH_BINARY is strictly greater-than; clamp below 255 so a
+            // saturated phone screen still survives when it occupies >5%.
+            val threshold = min(254.0, max(160.0, percentile(gray, 0.95)))
             Imgproc.threshold(gray, mask, threshold, 255.0, Imgproc.THRESH_BINARY)
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, kernel)
             Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
             val frameArea = frame.rows().toDouble() * frame.cols()
-            return contours.mapNotNull { contour ->
+            val luminousScreens = contours.mapNotNull { contour ->
                 val area = Imgproc.contourArea(contour)
                 val areaRatio = area / frameArea
                 if (areaRatio !in MIN_AREA_RATIO..MAX_AREA_RATIO) return@mapNotNull null
@@ -84,9 +87,98 @@ class ScreenCandidateDetector {
                     timestampMs = timestampMs,
                 )
             }
+            return luminousScreens + detectDarkPhoneShapes(gray, timestampMs, region)
         } finally {
             contours.forEach(MatOfPoint::release)
             gray.release()
+            mask.release()
+            hierarchy.release()
+            kernel.release()
+        }
+    }
+
+    private fun detectDarkPhoneShapes(
+        gray: Mat,
+        timestampMs: Long,
+        region: Polygon?,
+    ): List<PhoneEvidence> {
+        val mask = Mat()
+        val hierarchy = Mat()
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+        val contours = mutableListOf<MatOfPoint>()
+        try {
+            Imgproc.threshold(gray, mask, DARK_THRESHOLD, 255.0, Imgproc.THRESH_BINARY_INV)
+            Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, kernel)
+            Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+            val frameArea = gray.rows().toDouble() * gray.cols()
+            return contours.mapNotNull { contour ->
+                val area = Imgproc.contourArea(contour)
+                val areaRatio = area / frameArea
+                if (areaRatio !in MIN_DARK_AREA_RATIO..MAX_DARK_AREA_RATIO) return@mapNotNull null
+
+                val points = MatOfPoint2f(*contour.toArray())
+                val rotated = try {
+                    Imgproc.minAreaRect(points)
+                } finally {
+                    points.release()
+                }
+                val shortSide = min(rotated.size.width, rotated.size.height)
+                val longSide = max(rotated.size.width, rotated.size.height)
+                if (shortSide <= 0.0) return@mapNotNull null
+                val aspectRatio = longSide / shortSide
+                if (aspectRatio !in MIN_DARK_ASPECT_RATIO..MAX_DARK_ASPECT_RATIO) return@mapNotNull null
+
+                val rotatedArea = rotated.size.width * rotated.size.height
+                val fillRatio = area / rotatedArea
+                if (fillRatio < MIN_DARK_FILL_RATIO) return@mapNotNull null
+
+                val rect = Imgproc.boundingRect(contour)
+                if (rect.x <= 0 || rect.y <= 0 || rect.x + rect.width >= gray.cols() || rect.y + rect.height >= gray.rows()) {
+                    return@mapNotNull null
+                }
+                val inner = gray.submat(rect)
+                val padX = rect.width
+                val padY = rect.height
+                val outerX = max(0, rect.x - padX)
+                val outerY = max(0, rect.y - padY)
+                val outerRight = min(gray.cols(), rect.x + rect.width + padX)
+                val outerBottom = min(gray.rows(), rect.y + rect.height + padY)
+                val outer = gray.submat(outerY, outerBottom, outerX, outerRight)
+                val innerMean: Double
+                val outerMean: Double
+                try {
+                    innerMean = Core.mean(inner).`val`[0]
+                    outerMean = Core.mean(outer).`val`[0]
+                } finally {
+                    inner.release()
+                    outer.release()
+                }
+                val localContrast = outerMean - innerMean
+                if (localContrast < MIN_DARK_LOCAL_CONTRAST) return@mapNotNull null
+
+                val normalized = NRect(
+                    left = rect.x.toFloat() / gray.cols(),
+                    top = rect.y.toFloat() / gray.rows(),
+                    right = (rect.x + rect.width).toFloat() / gray.cols(),
+                    bottom = (rect.y + rect.height).toFloat() / gray.rows(),
+                )
+                if (region != null && !region.contains(normalized.center)) return@mapNotNull null
+
+                val confidence = min(
+                    0.75f,
+                    (0.40 + localContrast / 255.0 * 0.65 + (fillRatio - MIN_DARK_FILL_RATIO) * 0.35).toFloat(),
+                )
+                PhoneEvidence(
+                    box = normalized,
+                    confidence = confidence,
+                    kind = EvidenceKind.DARK_PHONE_SHAPE,
+                    overlapRatio = 0f,
+                    timestampMs = timestampMs,
+                )
+            }
+        } finally {
+            contours.forEach(MatOfPoint::release)
             mask.release()
             hierarchy.release()
             kernel.release()
@@ -122,5 +214,12 @@ class ScreenCandidateDetector {
         private const val MIN_ASPECT_RATIO = 1.25
         private const val MAX_ASPECT_RATIO = 2.6
         private const val MIN_FILL_RATIO = 0.70
+        private const val DARK_THRESHOLD = 65.0
+        private const val MIN_DARK_AREA_RATIO = 0.0002
+        private const val MAX_DARK_AREA_RATIO = 0.03
+        private const val MIN_DARK_ASPECT_RATIO = 1.05
+        private const val MAX_DARK_ASPECT_RATIO = 2.8
+        private const val MIN_DARK_FILL_RATIO = 0.72
+        private const val MIN_DARK_LOCAL_CONTRAST = 30.0
     }
 }

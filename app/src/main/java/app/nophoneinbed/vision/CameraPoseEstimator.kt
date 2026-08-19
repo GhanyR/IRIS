@@ -70,13 +70,16 @@ class CameraPoseEstimator {
                 rotationVector,
                 translationVector,
                 false,
-                Calib3d.SOLVEPNP_IPPE,
+                // ITERATIVE is more stable than IPPE for hand-tapped, strongly oblique
+                // mattress corners near the edge of a wide mobile camera frame.
+                Calib3d.SOLVEPNP_ITERATIVE,
             )
             require(solved) { "Camera pose could not be solved" }
 
             val reprojected = project(basePoints, rotationVector, translationVector, cameraMatrix, distortion)
             val error = rmsError(reprojected, imagePoints.toList())
-            require(error <= MAX_REPROJECTION_ERROR_PX) {
+            val maximumErrorPx = minOf(imageWidth, imageHeight) * MAX_REPROJECTION_ERROR_RATIO
+            require(error <= maximumErrorPx) {
                 "Camera pose reprojection error is too large: $error px"
             }
 
@@ -88,6 +91,11 @@ class CameraPoseEstimator {
                     heightMeters = calibration.heightMeters.toDouble(),
                     rotationMatrix = rotationMatrix,
                     translationVector = translationVector,
+                    rotationVector = rotationVector,
+                    cameraMatrix = cameraMatrix,
+                    distortion = distortion,
+                    imageWidth = imageWidth,
+                    imageHeight = imageHeight,
                 )
                 val projectedBase = project(basePoints, rotationVector, translationVector, cameraMatrix, distortion)
                 val projectedTop = project(topPoints, rotationVector, translationVector, cameraMatrix, distortion)
@@ -138,21 +146,42 @@ class CameraPoseEstimator {
         heightMeters: Double,
         rotationMatrix: Mat,
         translationVector: Mat,
+        rotationVector: Mat,
+        cameraMatrix: Mat,
+        distortion: MatOfDouble,
+        imageWidth: Int,
+        imageHeight: Int,
     ): List<Point3> {
         val baseDepth = basePoints.map { cameraDepth(it, rotationMatrix, translationVector) }.average()
         require(baseDepth > 0.0) { "Mattress is behind the camera" }
 
         val candidates = listOf(heightMeters, -heightMeters).map { signedHeight ->
             val points = basePoints.map { Point3(it.x, it.y, signedHeight) }
-            points to points.map { cameraDepth(it, rotationMatrix, translationVector) }
-        }.filter { (_, depths) -> depths.all { it > 0.0 } }
+            val depths = points.map { cameraDepth(it, rotationMatrix, translationVector) }
+            TopFaceCandidate(
+                points = points,
+                depths = depths,
+                projected = project(points, rotationVector, translationVector, cameraMatrix, distortion),
+            )
+        }.filter { candidate -> candidate.depths.all { it > 0.0 } }
 
-        val selected = candidates.minByOrNull { (_, depths) -> depths.average() }
-            ?: error("Projected prohibited height is behind the camera")
-        require(selected.second.average() < baseDepth) {
-            "Could not determine the upward bed-volume direction"
+        val selected = candidates.minByOrNull { candidate ->
+            val framePenalty = candidate.projected.sumOf { point ->
+                outsideDistance(point.x, imageWidth.toDouble()) / imageWidth +
+                    outsideDistance(point.y, imageHeight.toDouble()) / imageHeight
+            }
+            val normalizedCenterY = candidate.projected.map { it.y }.average() / imageHeight
+            val normalizedDepth = candidate.depths.average() / baseDepth
+            framePenalty * 100.0 + normalizedCenterY + normalizedDepth * 0.01
         }
-        return selected.first
+            ?: error("Projected prohibited height is behind the camera")
+        return selected.points
+    }
+
+    private fun outsideDistance(value: Double, maximum: Double): Double = when {
+        value < 0.0 -> -value
+        value > maximum -> value - maximum
+        else -> 0.0
     }
 
     private fun cameraDepth(point: Point3, rotation: Mat, translation: Mat): Double =
@@ -206,8 +235,14 @@ class CameraPoseEstimator {
             put(1, 2, intrinsics.cy)
         }
 
+    private data class TopFaceCandidate(
+        val points: List<Point3>,
+        val depths: List<Double>,
+        val projected: List<org.opencv.core.Point>,
+    )
+
     companion object {
-        private const val MAX_REPROJECTION_ERROR_PX = 5f
+        private const val MAX_REPROJECTION_ERROR_RATIO = 0.15f
         private const val FRAME_TOLERANCE = 0.05
 
         fun intrinsicsFrom(

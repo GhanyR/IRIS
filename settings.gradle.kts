@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NoPhoneInBed"
+rootProject.name = "IRIS"
 include(":app")

@@ -30,7 +30,11 @@ class MediaPipePhoneObjectDetector(context: Context) : PhoneObjectDetector {
 
     override fun detect(bitmap: Bitmap, timestampMs: Long): List<PhoneEvidence> {
         require(timestampMs >= 0) { "Timestamp must be non-negative" }
-        val image = BitmapImageBuilder(bitmap).build()
+        // MPImage owns and releases the Bitmap passed to BitmapImageBuilder. Keep the
+        // camera frame alive because the same frame is also consumed by OpenCV.
+        val detectorBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            ?: error("Unable to copy camera frame for object detection")
+        val image = BitmapImageBuilder(detectorBitmap).build()
         return try {
             detector.detect(image).detections().mapNotNull { detection ->
                 val category = detection.categories()
@@ -38,10 +42,10 @@ class MediaPipePhoneObjectDetector(context: Context) : PhoneObjectDetector {
                     .maxByOrNull { it.score() }
                     ?: return@mapNotNull null
                 val box = detection.boundingBox()
-                val left = (box.left / bitmap.width).coerceIn(0f, 1f)
-                val top = (box.top / bitmap.height).coerceIn(0f, 1f)
-                val right = (box.right / bitmap.width).coerceIn(0f, 1f)
-                val bottom = (box.bottom / bitmap.height).coerceIn(0f, 1f)
+                val left = (box.left / detectorBitmap.width).coerceIn(0f, 1f)
+                val top = (box.top / detectorBitmap.height).coerceIn(0f, 1f)
+                val right = (box.right / detectorBitmap.width).coerceIn(0f, 1f)
+                val bottom = (box.bottom / detectorBitmap.height).coerceIn(0f, 1f)
                 if (right <= left || bottom <= top) return@mapNotNull null
                 PhoneEvidence(
                     box = NRect(left, top, right, bottom),
@@ -53,6 +57,7 @@ class MediaPipePhoneObjectDetector(context: Context) : PhoneObjectDetector {
             }
         } finally {
             image.close()
+            if (!detectorBitmap.isRecycled) detectorBitmap.recycle()
         }
     }
 

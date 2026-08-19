@@ -29,10 +29,18 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/subtitleText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/iris_expansion"
+            android:textColor="@color/tracker_muted"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/stateText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:text="@string/state_setup"
             android:textColor="@color/tracker_watch"
             android:textSize="16sp"

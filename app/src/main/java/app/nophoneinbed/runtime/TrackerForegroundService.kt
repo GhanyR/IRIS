@@ -229,7 +229,15 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
             TrackerState.FAULT -> fault ?: "Pelacakan bermasalah"
         }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(label, state))
-        Log.i(TAG, "state=$state detections=${detections.size} inferenceMs=$inferenceMs fps=$analysisFps thermal=$thermalStatus")
+        val strongest = detections.maxByOrNull { it.confidence * it.overlapRatio }
+        Log.i(
+            TAG,
+            "state=$state detections=${detections.size} " +
+                "bestKind=${strongest?.kind ?: "none"} " +
+                "bestConfidence=${strongest?.confidence ?: 0f} " +
+                "bestOverlap=${strongest?.overlapRatio ?: 0f} " +
+                "inferenceMs=$inferenceMs fps=$analysisFps thermal=$thermalStatus",
+        )
     }
 
     private fun enterFault(reason: String) {
@@ -293,7 +301,7 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentTitle("No Phone in Bed — ${state.name}")
+            .setContentTitle("IRIS — ${state.name}")
             .setContentText(text)
             .setContentIntent(openIntent)
             .setOngoing(true)
@@ -303,7 +311,7 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "Pelacakan kasur", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, "IRIS — pelacakan kasur", NotificationManager.IMPORTANCE_LOW)
         channel.description = "Status kamera AI lokal"
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -317,7 +325,7 @@ class TrackerForegroundService : LifecycleService(), SensorEventListener {
         const val ACTION_STOP = "app.nophoneinbed.action.STOP"
         private const val CHANNEL_ID = "bed_tracking"
         private const val NOTIFICATION_ID = 41
-        private const val TAG = "NoPhoneInBed"
+        private const val TAG = "IRIS"
         private const val WAKE_LOCK_TIMEOUT_MS = 12L * 60L * 60L * 1_000L
 
         fun startIntent(context: Context) = Intent(context, TrackerForegroundService::class.java).setAction(ACTION_START)

@@ -19,7 +19,7 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.NoPhoneInBed"
+        android:theme="@style/Theme.IRIS"
         android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
