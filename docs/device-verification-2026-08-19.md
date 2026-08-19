@@ -14,8 +14,9 @@
 
 - 52 JVM unit tests passed with 0 failures and 0 errors.
 - 7 Mac manager unit tests passed under both the user's Python 3.13 and macOS system Python 3.9.
+- 1 zsh runtime parser test passed for both compact and fully qualified Android service names.
 - 21 Android instrumented tests passed with 0 failures and 0 errors on the physical moto g - 2025, Android 16 / SDK 36.
-- Total unique automated checks in 0.3.0: 80.
+- Total unique automated checks in 0.3.0: 81.
 - Coverage includes alarm clearing from fresh evidence, 60-second capped indefinite camera retry, wake-lock leasing, publish throttling, persistent armed state, in-memory preview privacy, rear-camera frames, EfficientDet-Lite2 loading, generated angle/clutter cases, black/covered-frame faults, oblique bed-volume projection, foreground-service behavior, setup UI, Mac-controlled corner dragging, nearby side-angle corner taps, manager intent actions, duplicate USB/Wi-Fi selection, Android compact service-name parsing, lock/power parsing, and pixel-free runtime log parsing.
 - `git diff --check`, zsh/Python syntax checks, browser rendering with no console errors, and the reviewed model checksum passed.
 

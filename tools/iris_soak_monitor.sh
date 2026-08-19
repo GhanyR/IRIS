@@ -1,9 +1,11 @@
 #!/bin/zsh
 set -euo pipefail
 
+SCRIPT_DIR="${0:A:h}"
+source "$SCRIPT_DIR/iris_runtime_helpers.sh"
+
 ADB_BIN="${ADB_BIN:-adb}"
 PACKAGE_NAME="app.nophoneinbed"
-SERVICE_NAME="app.nophoneinbed.runtime.TrackerForegroundService"
 DURATION_SECONDS="${IRIS_SOAK_SECONDS:-1800}"
 INTERVAL_SECONDS="${IRIS_SOAK_INTERVAL_SECONDS:-30}"
 OUTPUT_PATH="${IRIS_SOAK_OUTPUT:-/tmp/iris-soak-$(date +%Y%m%d-%H%M%S).tsv}"
@@ -53,7 +55,7 @@ while true; do
   ELAPSED=$(( NOW_EPOCH - START_EPOCH ))
   PID="$($ADB_BIN -s "$SERIAL" shell pidof "$PACKAGE_NAME" 2>/dev/null | tr -d '\r' || true)"
   SERVICE_DUMP="$($ADB_BIN -s "$SERIAL" shell dumpsys activity services "$PACKAGE_NAME" 2>/dev/null || true)"
-  if [[ "$SERVICE_DUMP" == *"$SERVICE_NAME"* ]]; then
+  if iris_service_visible "$SERVICE_DUMP"; then
     SERVICE_VISIBLE="yes"
   else
     SERVICE_VISIBLE="no"
