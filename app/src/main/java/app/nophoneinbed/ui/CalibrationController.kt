@@ -27,6 +27,12 @@ class CalibrationController {
         return true
     }
 
+    fun moveCorner(index: Int, point: NPoint): Boolean {
+        if (index !in mutableCorners.indices || point.x !in 0f..1f || point.y !in 0f..1f) return false
+        mutableCorners[index] = point
+        return true
+    }
+
     fun reset() = mutableCorners.clear()
 
     fun build(

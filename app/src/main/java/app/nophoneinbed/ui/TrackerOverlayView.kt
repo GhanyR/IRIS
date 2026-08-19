@@ -31,8 +31,11 @@ class TrackerOverlayView @JvmOverloads constructor(
     }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private var state = OverlayRenderState()
+    private var draggedCornerIndex: Int? = null
     var coordinateMapper: CoordinateMapper? = null
     var onNormalizedTap: ((NPoint) -> Unit)? = null
+    var onNormalizedDrag: ((Int, NPoint) -> Unit)? = null
+    var calibrationEditable: Boolean = false
 
     fun render(newState: OverlayRenderState) {
         state = newState
@@ -41,13 +44,18 @@ class TrackerOverlayView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        linePaint.color = when (state.trackerState) {
+        val trackerColor = when (state.trackerState) {
             TrackerState.ALARM -> Color.RED
             TrackerState.WATCH -> Color.YELLOW
             TrackerState.FAULT -> Color.MAGENTA
             TrackerState.CLEAR -> Color.GREEN
         }
+        linePaint.color = trackerColor
         state.projectedVolume?.let { drawPolygon(canvas, it) }
+        if (state.calibrationCorners.size >= 2) {
+            linePaint.color = Color.CYAN
+            drawCalibrationGuide(canvas, state.calibrationCorners)
+        }
         state.calibrationCorners.forEachIndexed { index, point ->
             val displayPoint = map(point)
             fillPaint.color = Color.CYAN
@@ -56,12 +64,25 @@ class TrackerOverlayView @JvmOverloads constructor(
             fillPaint.textSize = 13f * resources.configuration.fontScale * resources.displayMetrics.density
             canvas.drawText("${index + 1}", displayPoint.x * width - 4f, displayPoint.y * height + 5f, fillPaint)
         }
+        linePaint.color = trackerColor
         state.detections.forEach { evidence ->
             val box = evidence.box
             val topLeft = map(NPoint(box.left, box.top))
             val bottomRight = map(NPoint(box.right, box.bottom))
             canvas.drawRect(topLeft.x * width, topLeft.y * height, bottomRight.x * width, bottomRight.y * height, linePaint)
         }
+    }
+
+    private fun drawCalibrationGuide(canvas: Canvas, corners: List<NPoint>) {
+        val path = Path()
+        corners.forEachIndexed { index, point ->
+            val displayPoint = map(point)
+            val x = displayPoint.x * width
+            val y = displayPoint.y * height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        if (corners.size == 4) path.close()
+        canvas.drawPath(path, linePaint)
     }
 
     private fun drawPolygon(canvas: Canvas, polygon: Polygon) {
@@ -77,17 +98,55 @@ class TrackerOverlayView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action != MotionEvent.ACTION_UP || width == 0 || height == 0) return true
-        val displayPoint = NPoint(event.x / width, event.y / height)
-        val analysisPoint = coordinateMapper?.toAnalysis(displayPoint) ?: displayPoint
-        if (analysisPoint.x in 0f..1f && analysisPoint.y in 0f..1f) {
-            onNormalizedTap?.invoke(analysisPoint)
+        if (width == 0 || height == 0) return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                draggedCornerIndex = if (calibrationEditable && state.calibrationCorners.size == 4) {
+                    nearestCorner(event.x, event.y)
+                } else {
+                    null
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                draggedCornerIndex?.let { index -> normalizedPoint(event)?.let { onNormalizedDrag?.invoke(index, it) } }
+            }
+            MotionEvent.ACTION_UP -> {
+                val index = draggedCornerIndex
+                if (index != null) {
+                    normalizedPoint(event)?.let { onNormalizedDrag?.invoke(index, it) }
+                } else {
+                    normalizedPoint(event)?.let { onNormalizedTap?.invoke(it) }
+                }
+                draggedCornerIndex = null
+                performClick()
+            }
+            MotionEvent.ACTION_CANCEL -> draggedCornerIndex = null
         }
-        performClick()
         return true
     }
 
     override fun performClick(): Boolean = super.performClick()
+
+    private fun normalizedPoint(event: MotionEvent): NPoint? {
+        val displayPoint = NPoint(event.x / width, event.y / height)
+        val analysisPoint = coordinateMapper?.toAnalysis(displayPoint) ?: displayPoint
+        return analysisPoint.takeIf { it.x in 0f..1f && it.y in 0f..1f }
+    }
+
+    private fun nearestCorner(x: Float, y: Float): Int? {
+        val radius = 32f * resources.displayMetrics.density
+        val radiusSquared = radius * radius
+        return state.calibrationCorners
+            .mapIndexed { index, point ->
+                val displayPoint = map(point)
+                val dx = displayPoint.x * width - x
+                val dy = displayPoint.y * height - y
+                index to (dx * dx + dy * dy)
+            }
+            .filter { (_, distance) -> distance <= radiusSquared }
+            .minByOrNull { (_, distance) -> distance }
+            ?.first
+    }
 
     private fun map(point: NPoint): NPoint = coordinateMapper?.toPreview(point) ?: point
 }

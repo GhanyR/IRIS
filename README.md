@@ -31,6 +31,14 @@ Recalibrate whenever the monitoring phone or bed moves.
 
 IRIS can be viewed and controlled from a Mac over Wi-Fi with scrcpy. Bluetooth is not used because it is too slow for responsive camera preview.
 
+For the easiest setup, double-click **IRIS Manager.command** in the `mac` folder. It opens a local dashboard with device/service/vision/power status plus buttons for Wi-Fi connection, live view, app setup, start/stop, alarm testing, APK installation, and bounded soak tests:
+
+```bash
+open "mac/IRIS Manager.command"
+```
+
+The manager listens only on `127.0.0.1`. It reads diagnostic metadata through ADB and never receives, saves, or uploads camera frames. **Kalibrasi / Live View** opens IRIS in a separate local scrcpy window over the same Wi-Fi network. Click the four mattress corners there, then drag any numbered cyan point with the Mac mouse until the polygon matches the mattress before saving.
+
 The initial enablement uses USB once:
 
 ```bash
@@ -73,4 +81,4 @@ The Android application ID intentionally remains `app.nophoneinbed` so existing 
 
 ## Current status
 
-IRIS is an experimental personal safety/productivity tool, not a security system. Detection quality depends on lighting, occlusion, phone size in frame, and camera placement.
+IRIS is an experimental personal safety/productivity tool, not a security system. Automated tests cover the detector, state transitions, camera health, movement, privacy contract, manager parsing, and physical Android integration. Real-world detection still depends on lighting, occlusion, phone size in frame, and camera placement; a fully hidden or out-of-frame phone cannot be detected by any camera system.

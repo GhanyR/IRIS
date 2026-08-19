@@ -50,4 +50,25 @@ class CalibrationControllerTest {
         assertThat(calibration.mattressCorners).containsExactlyElementsIn(controller.corners).inOrder()
         assertThat(controller.nextPrompt).isNull()
     }
+
+    @Test
+    fun moving_a_corner_from_mac_preserves_order_and_rejects_invalid_targets() {
+        val controller = CalibrationController()
+        listOf(
+            NPoint(.1f, .1f),
+            NPoint(.9f, .1f),
+            NPoint(.9f, .9f),
+            NPoint(.1f, .9f),
+        ).forEach(controller::onTap)
+
+        assertThat(controller.moveCorner(1, NPoint(.82f, .18f))).isTrue()
+        assertThat(controller.corners).containsExactly(
+            NPoint(.1f, .1f),
+            NPoint(.82f, .18f),
+            NPoint(.9f, .9f),
+            NPoint(.1f, .9f),
+        ).inOrder()
+        assertThat(controller.moveCorner(4, NPoint(.5f, .5f))).isFalse()
+        assertThat(controller.moveCorner(0, NPoint(-.1f, .5f))).isFalse()
+    }
 }

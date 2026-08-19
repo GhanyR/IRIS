@@ -3,3 +3,7 @@
 local.properties
 .idea/
 *.iml
+.playwright-cli/
+output/
+__pycache__/
+*.pyc

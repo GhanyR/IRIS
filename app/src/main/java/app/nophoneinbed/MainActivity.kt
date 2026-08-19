@@ -32,6 +32,7 @@ import app.nophoneinbed.databinding.ActivityMainBinding
 import app.nophoneinbed.domain.BedCalibration
 import app.nophoneinbed.domain.BedVolumeProjection
 import app.nophoneinbed.domain.TrackerState
+import app.nophoneinbed.manager.ManagerAction
 import app.nophoneinbed.runtime.AndroidToneOutput
 import app.nophoneinbed.runtime.TrackerForegroundService
 import app.nophoneinbed.runtime.TrackerRuntime
@@ -91,7 +92,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         updateAlarmVolume()
         observeTrackerStatus()
         if (hasRequiredPermissions()) {
-            if (trackingRequested) {
+            if (handleManagerAction(intent?.action)) {
+                intent?.action = Intent.ACTION_MAIN
+            } else if (trackingRequested) {
                 showSetupMessage("WATCH — menyambungkan kembali live monitoring", false)
                 ContextCompat.startForegroundService(this, TrackerForegroundService.startIntent(this))
             } else {
@@ -102,9 +105,52 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (hasRequiredPermissions()) {
+            handleManagerAction(intent.action)
+            intent.action = Intent.ACTION_MAIN
+        } else {
+            requestRequiredPermissions()
+        }
+    }
+
+    private fun handleManagerAction(action: String?): Boolean {
+        return when (ManagerAction.fromIntentAction(action)) {
+            ManagerAction.START -> {
+                if (currentCalibration == null) {
+                    showSetupMessage("SETUP — kalibrasikan 4 sudut kasur sebelum mulai", fault = true)
+                    startSetupPreview()
+                } else {
+                    audibleAcknowledged = true
+                    startTracking()
+                }
+                true
+            }
+            ManagerAction.STOP -> {
+                stopTracking()
+                true
+            }
+            ManagerAction.TEST_ALARM -> {
+                testAlarm()
+                true
+            }
+            null -> false
+        }
+    }
+
     private fun configureActions() {
         binding.overlayView.onNormalizedTap = { point ->
             if (calibrating && calibrationController.onTap(point)) {
+                renderOverlay()
+                updateCalibrationPrompt()
+                updateControls()
+            }
+        }
+        binding.overlayView.onNormalizedDrag = { index, point ->
+            if (calibrating && calibrationController.moveCorner(index, point)) {
+                currentProjection = null
                 renderOverlay()
                 updateCalibrationPrompt()
                 updateControls()
@@ -370,10 +416,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private fun updateCalibrationPrompt() {
         binding.promptText.text = calibrationController.nextPrompt?.let {
             "Tap titik ${calibrationController.corners.size + 1}: ${it.label}. Seluruh kasur harus tetap terlihat."
-        } ?: "Empat titik lengkap. Periksa urutan, lalu Simpan 4 titik."
+        } ?: "Empat titik lengkap. Drag titik dengan mouse dari Mac sampai presisi, lalu Simpan 4 titik."
     }
 
     private fun renderOverlay() {
+        binding.overlayView.calibrationEditable = calibrating && !trackingRequested
         binding.overlayView.render(
             OverlayRenderState(
                 calibrationCorners = calibrationController.corners,
