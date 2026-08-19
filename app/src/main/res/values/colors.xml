@@ -2,4 +2,9 @@
 <resources>
     <color name="tracker_background">#07110E</color>
     <color name="tracker_foreground">#F3FFF9</color>
+    <color name="tracker_muted">#A9BDB4</color>
+    <color name="tracker_clear">#4ADE80</color>
+    <color name="tracker_watch">#FACC15</color>
+    <color name="tracker_alarm">#FB7185</color>
+    <color name="tracker_fault">#C084FC</color>
 </resources>

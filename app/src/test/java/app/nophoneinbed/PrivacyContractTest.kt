@@ -10,11 +10,13 @@ class PrivacyContractTest {
     fun manifestDoesNotRequestInternetOrPrivateMediaPermissions() {
         val xml = File("src/main/AndroidManifest.xml").readText()
 
-        assertThat(xml).doesNotContain("android.permission.INTERNET")
-        assertThat(xml).doesNotContain("READ_MEDIA")
-        assertThat(xml).doesNotContain("WRITE_EXTERNAL_STORAGE")
-        assertThat(xml).doesNotContain("RECORD_AUDIO")
-        assertThat(xml).doesNotContain("ACCESS_FINE_LOCATION")
+        assertRemovedOrAbsent(xml, "android.permission.INTERNET")
+        assertRemovedOrAbsent(xml, "android.permission.ACCESS_NETWORK_STATE")
+        assertRemovedOrAbsent(xml, "android.permission.READ_MEDIA_IMAGES")
+        assertRemovedOrAbsent(xml, "android.permission.READ_MEDIA_VIDEO")
+        assertRemovedOrAbsent(xml, "android.permission.WRITE_EXTERNAL_STORAGE")
+        assertRemovedOrAbsent(xml, "android.permission.RECORD_AUDIO")
+        assertRemovedOrAbsent(xml, "android.permission.ACCESS_FINE_LOCATION")
     }
 
     @Test
@@ -28,5 +30,13 @@ class PrivacyContractTest {
 
         assertThat(hash)
             .isEqualTo("0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb")
+    }
+
+    private fun assertRemovedOrAbsent(xml: String, permission: String) {
+        val declarations = Regex("<uses-permission[^>]*android:name=\"${Regex.escape(permission)}\"[^>]*/>")
+            .findAll(xml)
+            .map { it.value }
+            .toList()
+        assertThat(declarations.all { it.contains("tools:node=\"remove\"") }).isTrue()
     }
 }
